@@ -1,0 +1,111 @@
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--card-background);
+  border-bottom: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
+  height: 64px; // 固定高度
+  flex-shrink: 0; // 防止被压缩
+
+  // 其他样式保持不变...
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+
+    .logo-icon {
+      font-size: 24px;
+    }
+
+    .logo-text {
+      font-size: var(--font-size-lg);
+      font-weight: var(--font-weight-semibold);
+      color: var(--primary-color);
+    }
+  }
+
+  .nav-menu {
+    flex: 1;
+    margin: 0 var(--spacing-xl);
+
+    .nav-list {
+      display: flex;
+      list-style: none;
+      gap: var(--spacing-lg);
+      margin: 0;
+      padding: 0;
+
+      .nav-item {
+        padding: var(--spacing-sm) var(--spacing-md);
+        border-radius: var(--border-radius-md);
+        cursor: pointer;
+        font-size: var(--font-size-base);
+        font-weight: var(--font-weight-medium);
+        color: var(--text-secondary);
+        transition: all 0.2s ease;
+
+        &:hover {
+          background: rgba(79, 70, 229, 0.1);
+          color: var(--primary-color);
+        }
+
+        &.active {
+          background: rgba(79, 70, 229, 0.1);
+          color: var(--primary-color);
+        }
+      }
+    }
+  }
+
+  .user-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-lg);
+
+    .notification-badge {
+      position: relative;
+      cursor: pointer;
+
+      .bell-icon {
+        font-size: 20px;
+        color: var(--text-secondary);
+        transition: color 0.2s ease;
+
+        &:hover {
+          color: var(--primary-color);
+        }
+      }
+
+      .badge-count {
+        position: absolute;
+        top: -8px;
+        right: -8px;
+        background: var(--error-color);
+        color: white;
+        font-size: 10px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+    }
+
+    .user-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--primary-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      cursor: pointer;
+      font-size: 16px;
+    }
+  }
+}

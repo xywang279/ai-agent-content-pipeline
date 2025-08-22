@@ -1,17 +1,22 @@
 import React, { useState } from "react";
-import { Input, Button, Typography, Alert, Spin, Card, Space } from "antd";
-import { generateContent, getNews,getReport } from "../api/content";
+import { Input, Button, Typography, Alert, Spin, Card, Space, message } from "antd";
+import ReactMarkdown from "react-markdown";
+import { generateContent, getNews, getReport } from "../api/content";
 
-const { Title, Paragraph } = Typography;
+const { Title } = Typography;
 
 export default function Dashboard() {
   const [topic, setTopic] = useState("");
   const [article, setArticle] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [pdfPath, setPdfPath] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [chatInput, setChatInput] = useState("");
+  const [chatHistory, setChatHistory] = useState([]);
 
-  const handleGenerate = async () => {
+  // 通用请求处理器
+  const handleRequest = async (apiFunc, successHandler, failMsg) => {
     if (!topic.trim()) {
       setError("请输入主题");
       return;
@@ -20,56 +25,27 @@ export default function Dashboard() {
     setLoading(true);
     setArticle("");
     setImageUrl("");
+    setPdfPath("");
     try {
-      const data = await generateContent(topic);
-      setArticle(data.article);
-      setImageUrl(data.image_url);
+      const data = await apiFunc(topic);
+      successHandler(data);
     } catch (err) {
-      setError("生成内容失败，请重试。");
+      setError(failMsg);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGetNews = async () => {
-    if (!topic.trim()) {
-      setError("请输入主题");
-      return;
-    }
-    setError("");
-    setLoading(true);
-    setArticle("");
-    setImageUrl("");
-    try {
-      const data = await getNews(topic);
-      setArticle(data.article);
-      setImageUrl(data.image_url);
-    } catch (err) {
-      setError("获取新闻失败，请重试。");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGetREPORT = async () => {
-    if (!topic.trim()) {
-      setError("请输入主题");
-      return;
-    }
-    setError("");
-    setLoading(true);
-    setArticle("");
-    setImageUrl("");
-    try {
-      const data = await getReport(topic);
-     // setArticle(data.article);
-     // setImageUrl(data.image_url);
-    } catch (err) {
-      console.log(err);
-      setError("获取新闻失败，请重试。");
-    } finally {
-      setLoading(false);
-    }
+  // 聊天功能（本地模拟，实际可对接后端chat接口）
+  const handleChat = () => {
+    if (!chatInput.trim()) return;
+    setChatHistory([...chatHistory, { role: "user", content: chatInput }]);
+    // 这里可调用后端chat接口
+    setChatHistory((history) => [
+      ...history,
+      { role: "ai", content: `AI回复：${chatInput}` },
+    ]);
+    setChatInput("");
   };
 
   return (
@@ -82,29 +58,84 @@ export default function Dashboard() {
           placeholder="输入主题"
           size="large"
           disabled={loading}
+          onPressEnter={() =>
+            handleRequest(
+              generateContent,
+              (data) => {
+                setArticle(data.article);
+                setImageUrl(data.image_url);
+                setPdfPath(data.pdf_path || "");
+              },
+              "生成内容失败，请重试。"
+            )
+          }
         />
         <Space>
           <Button
             type="primary"
-            onClick={handleGenerate}
+            onClick={() =>
+              handleRequest(
+                generateContent,
+                (data) => {
+                  setArticle(data.article);
+                  setImageUrl(data.image_url);
+                  setPdfPath(data.pdf_path || "");
+                },
+                "生成内容失败，请重试。"
+              )
+            }
             loading={loading}
             disabled={loading}
           >
             生成内容
           </Button>
           <Button
-            onClick={handleGetNews}
+            onClick={() =>
+              handleRequest(
+                getNews,
+                (data) => {
+                  setArticle(data.article);
+                  setImageUrl(data.image_url);
+                  setPdfPath(data.pdf_path || "");
+                },
+                "获取新闻失败，请重试。"
+              )
+            }
             loading={loading}
             disabled={loading}
           >
             获取AI新闻
           </Button>
           <Button
-            onClick={handleGetREPORT}
+            onClick={() =>
+              handleRequest(
+                getReport,
+                (data) => {
+                  setArticle(data.report || data.article || "报告生成成功");
+                  setImageUrl(data.image_url || "");
+                  setPdfPath(data.pdf_path || "");
+                  if (data.pdf_path) {
+                    message.success(
+                      <span>
+                        报告已生成，
+                        <a
+                          href={data.pdf_path}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          点击下载PDF
+                        </a>
+                      </span>
+                    );
+                  }
+                },
+                "生成报告失败，请重试。"
+              )
+            }
             loading={loading}
             disabled={loading}
           >
-            SHEN 
+            生成报告
           </Button>
         </Space>
         {error && <Alert type="error" message={error} showIcon />}
@@ -114,8 +145,15 @@ export default function Dashboard() {
           </div>
         )}
         {article && (
-          <Card title="文章" type="inner">
-            <Paragraph style={{ whiteSpace: "pre-wrap" }}>{article}</Paragraph>
+          <Card title="内容 (Markdown 渲染)" type="inner">
+            <ReactMarkdown>{article}</ReactMarkdown>
+            {pdfPath && (
+              <div style={{ marginTop: 16 }}>
+                <a href={pdfPath} target="_blank" rel="noopener noreferrer">
+                  下载完整PDF文件
+                </a>
+              </div>
+            )}
           </Card>
         )}
         {imageUrl && (
@@ -127,6 +165,25 @@ export default function Dashboard() {
             />
           </Card>
         )}
+        {/* 聊天功能 */}
+        <Card title="继续聊天" type="inner">
+          <div style={{ maxHeight: 200, overflowY: "auto", marginBottom: 8 }}>
+            {chatHistory.map((msg, idx) => (
+              <div key={idx} style={{ textAlign: msg.role === "user" ? "right" : "left" }}>
+                <b>{msg.role === "user" ? "你" : "AI"}：</b>
+                <span>{msg.content}</span>
+              </div>
+            ))}
+          </div>
+          <Input.Search
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onSearch={handleChat}
+            enterButton="发送"
+            placeholder="继续提问或对话"
+            disabled={loading}
+          />
+        </Card>
       </Space>
     </Card>
   );

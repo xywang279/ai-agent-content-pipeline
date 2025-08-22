@@ -1,26 +1,26 @@
-export async function generateContent(topic) {
-  const res = await fetch("http://127.0.0.1:8000/api/content/generate", {
+const BASE_URL = "http://127.0.0.1:8000/api";
+
+async function request(endpoint, data) {
+  const res = await fetch(`${BASE_URL}${endpoint}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ topic }),
+    body: JSON.stringify(data),
   });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || "请求失败");
+  }
   return res.json();
 }
 
-export async function getNews(topic) {
-  const res = await fetch("http://127.0.0.1:8000/api/publish/publish_ai_news_to_wechat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ topic }),
-  });
-  return res.json();
+export function generateContent(topic) {
+  return request("/content/generate", { topic });
 }
 
-export async function getReport(topic) {
-  const res = await fetch("http://127.0.0.1:8000/api/content/generate_report", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ topic }),
-  });
-  return res.json();
+export function getNews(topic) {
+  return request("/publish/publish_ai_news_to_wechat", { topic });
+}
+
+export function getReport(topic) {
+  return request("/content/generate_report", { topic });
 }

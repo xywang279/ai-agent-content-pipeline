@@ -1,17 +1,49 @@
-import React from "react";
-import Dashboard from "./pages/Dashboard";
+import React, { useState } from 'react';
+import ChatPage from './pages/ChatPage';
+import ToolsPage from './pages/ToolsPage';
+import SettingsPage from './pages/SettingsPage';
+import './styles/variables.scss';
+import './App.scss'; // 添加这个样式文件
 
-function App() {
+const App = () => {
+  const [currentPage, setCurrentPage] = useState('chat');
+
+  const renderPage = () => {
+    switch (currentPage) {
+      case 'tools':
+        return <ToolsPage />;
+      case 'settings':
+        return <SettingsPage />;
+      default:
+        return <ChatPage />;
+    }
+  };
+
   return (
-    <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-      <h1>AI Agent Content Pipeline</h1>
-      <p>欢迎使用 AI Agent 内容处理平台。</p>
-      {/* 在这里添加你的组件或页面内容 */}
-    <div>
-        <Dashboard />
-    </div>
+    <div className="app-wrapper">
+      <nav className="navigation">
+        <button 
+          className={`nav-button ${currentPage === 'chat' ? 'active' : ''}`}
+          onClick={() => setCurrentPage('chat')}
+        >
+          对话
+        </button>
+        <button 
+          className={`nav-button ${currentPage === 'tools' ? 'active' : ''}`}
+          onClick={() => setCurrentPage('tools')}
+        >
+          工具
+        </button>
+        <button 
+          className={`nav-button ${currentPage === 'settings' ? 'active' : ''}`}
+          onClick={() => setCurrentPage('settings')}
+        >
+          设置
+        </button>
+      </nav>
+      {renderPage()}
     </div>
   );
-}
+};
 
 export default App;

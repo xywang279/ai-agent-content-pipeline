@@ -1,0 +1,66 @@
+
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--spacing-lg);
+  padding: var(--spacing-lg);
+
+  .tool-card {
+    background: var(--card-background);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    padding: var(--spacing-lg);
+    text-align: center;
+    transition: all 0.2s ease;
+    box-shadow: var(--shadow-sm);
+
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+      border-color: var(--primary-color);
+    }
+
+    .tool-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: rgba(79, 70, 229, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto var(--spacing-md);
+      font-size: 24px;
+      color: var(--primary-color);
+    }
+
+    .tool-title {
+      font-size: var(--font-size-lg);
+      font-weight: var(--font-weight-semibold);
+      color: var(--text-primary);
+      margin: 0 0 var(--spacing-sm);
+    }
+
+    .tool-description {
+      font-size: var(--font-size-sm);
+      color: var(--text-secondary);
+      margin: 0 0 var(--spacing-lg);
+      line-height: 1.5;
+    }
+
+    .use-tool-btn {
+      width: 100%;
+      background: var(--primary-color);
+      border: none;
+      border-radius: var(--border-radius-md);
+      padding: var(--spacing-md);
+      font-weight: var(--font-weight-medium);
+      color: white;
+      cursor: pointer;
+      transition: all 0.2s ease;
+
+      &:hover {
+        background: #4338ca;
+      }
+    }
+  }
+}

@@ -1,0 +1,99 @@
+
+
+.input-area {
+  display: flex;
+  align-items: flex-end;
+  padding: var(--spacing-lg);
+  background: var(--card-background);
+  border-top: 1px solid var(--border-color);
+  gap: var(--spacing-md);
+  flex-shrink: 0; // 关键：防止被压缩
+  min-height: 80px; // 设置最小高度
+
+  .input-tools {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+
+    .tool-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 1px solid var(--border-color);
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--text-secondary);
+      transition: all 0.2s ease;
+      font-size: 16px;
+
+      &:hover {
+        background: rgba(79, 70, 229, 0.05);
+        border-color: var(--primary-color);
+        color: var(--primary-color);
+      }
+    }
+  }
+
+  .input-container {
+    flex: 1;
+    position: relative;
+
+    .message-input {
+      width: 100%;
+      min-height: 40px;
+      max-height: 120px;
+      padding: var(--spacing-md);
+      border: 1px solid var(--border-color);
+      border-radius: var(--border-radius-lg);
+      font-family: var(--font-family);
+      font-size: var(--font-size-base);
+      resize: none;
+      outline: none;
+      transition: border-color 0.2s ease;
+      box-sizing: border-box;
+
+      &:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+      }
+
+      &::placeholder {
+        color: var(--text-secondary);
+      }
+    }
+  }
+
+  .send-container {
+    display: flex;
+    align-items: flex-end;
+
+    .send-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: none;
+      background: var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: not-allowed;
+      color: var(--text-secondary);
+      transition: all 0.2s ease;
+      font-size: 16px;
+
+      &.active {
+        background: var(--primary-color);
+        color: white;
+        cursor: pointer;
+
+        &:hover {
+          background: #4338ca;
+          transform: scale(1.05);
+        }
+      }
+    }
+  }
+}

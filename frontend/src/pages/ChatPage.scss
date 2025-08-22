@@ -1,0 +1,21 @@
+.chat-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.chat-main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.chat-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  min-width: 0;
+}
