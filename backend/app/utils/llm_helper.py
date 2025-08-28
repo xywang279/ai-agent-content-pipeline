@@ -11,6 +11,7 @@ class LLMHelper:
             temperature=0.7,
             openai_api_key=DEEPSEEK_API_KEY,
             base_url=BASE_URL,
+            max_tokens=2000   # ✅ 在这里设置
         )
     
     async def chat_completion(self, messages: List[Dict], temperature: float = 0.7) -> Dict:
@@ -66,6 +67,8 @@ class LLMHelper:
                 "type": "error",
                 "content": f"DeepSeek API 流式调用失败: {str(e)}"
             }
-
+    async def close(self):
+            # 如果没有需要清理的内容，就留空
+            pass
 # 全局 LLM Helper 实例
 llm_helper = LLMHelper()

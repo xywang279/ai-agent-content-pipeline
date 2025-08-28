@@ -19,16 +19,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.routes.chat import router as chat_router
 from app.utils.llm_helper import llm_helper
+from app.database import init_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 启动时的初始化操作
     print("正在启动 AI Agent...")
+    # 初始化数据库
+    init_db()
     
     yield
     
     # 关闭时的清理操作
     print("正在关闭 AI Agent...")
+    await llm_helper.close()
+
 
 # 创建 FastAPI 应用
 app = FastAPI(

@@ -7,8 +7,9 @@ from datetime import datetime
 import asyncio
 
 from app.utils.llm_helper import llm_helper
-from app.utils.conversation_manager import conversation_manager
+from app.utils.conversation_manager_usesql import conversation_manager
 from app.utils.memory_manager import MemoryManager
+from app.agents.report_agent import  report_agent
 memory_manager = MemoryManager()
 memory_manager.create_or_load()
 
@@ -29,15 +30,31 @@ class ChatMessageResponse(BaseModel):
 class ConversationCreateRequest(BaseModel):
     title: Optional[str] = None
 
-class ConversationResponse(BaseModel):
+class ConversationItem(BaseModel):
     id: str
     title: str
-    created_at: str
-    updated_at: str
+    preview: str
+    time: str
     message_count: int
 
 class ConversationListResponse(BaseModel):
-    conversations: List[ConversationResponse]
+    conversations: List[ConversationItem]
+
+class ReportGenerateRequest(BaseModel):
+    conversation_id: str
+    template_type: Optional[str] = "standard"
+    custom_instructions: Optional[str] = None
+
+class ReportOptimizeRequest(BaseModel):
+    conversation_id: str
+    current_report: str
+    optimization_request: str
+
+class ReportResponse(BaseModel):
+    report_id: str
+    content: str
+    conversation_id: str
+    timestamp: str
 
 def _now():
     return datetime.utcnow().isoformat()
@@ -52,25 +69,71 @@ def _safe_llm_content(response):
 async def send_chat_message(request: ChatMessageRequest):
     """发送聊天消息"""
     try:
-        conversation_id = request.conversation_id or conversation_manager.create_conversation()
+        # 如果没有对话ID，创建新对话
+        conversation_id = request.conversation_id
+        if not conversation_id:
+            # 根据第一条消息生成对话标题
+            title = request.message[:20] + "..." if len(request.message) > 20 else request.message
+            conversation_id = conversation_manager.create_conversation(title)
+        
+        # 添加用户消息
         user_message = {
             "id": str(uuid.uuid4()),
             "role": "user",
             "content": request.message,
-            "timestamp": _now()
+            "timestamp": datetime.now().isoformat()
         }
         conversation_manager.add_message(conversation_id, user_message)
+
+        # 检查是否是报告生成请求
+        if "生成报告" in request.message or "帮我写报告" in request.message:
+            # 自动生成报告
+            report_content = await generate_report_automatically(conversation_id)
+            
+            # 添加报告作为 AI 消息
+            ai_message = {
+                "id": str(uuid.uuid4()),
+                "role": "assistant",
+                "content": f"好的，我已经根据我们的对话生成了报告：\n\n{report_content}",
+                "timestamp": datetime.now().isoformat(),
+                "tool_call": {
+                    "name": "report_generator",
+                    "arguments": {"type": "auto_generated"},
+                    "status": "completed"
+                }
+            }
+            conversation_manager.add_message(conversation_id, ai_message)
+            
+            return ChatMessageResponse(
+                message_id=ai_message["id"],
+                content=ai_message["content"],
+                conversation_id=conversation_id,
+                role="assistant",
+                timestamp=ai_message["timestamp"]
+            )
+        
+        # 获取对话历史
         messages = conversation_manager.get_messages(conversation_id)
         formatted_messages = [{"role": msg["role"], "content": msg["content"]} for msg in messages]
-        response = await llm_helper.chat_completion(messages=formatted_messages, temperature=0.7)
-        ai_content = _safe_llm_content(response)
+        
+        # 调用 DeepSeek API
+        response = await llm_helper.chat_completion(
+            messages=formatted_messages,
+            temperature=0.7
+        )
+        
+        # 提取 AI 回复
+        ai_content = response["choices"][0]["message"]["content"]
+        
+        # 添加 AI 消息
         ai_message = {
             "id": str(uuid.uuid4()),
             "role": "assistant",
             "content": ai_content,
-            "timestamp": _now()
+            "timestamp": datetime.now().isoformat()
         }
         conversation_manager.add_message(conversation_id, ai_message)
+        
         return ChatMessageResponse(
             message_id=ai_message["id"],
             content=ai_content,
@@ -78,6 +141,7 @@ async def send_chat_message(request: ChatMessageRequest):
             role="assistant",
             timestamp=ai_message["timestamp"]
         )
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"发送消息失败: {str(e)}")
 
@@ -86,6 +150,7 @@ async def _safe_send(websocket: WebSocket, message: dict, chunk_size: int = 2000
     text = json.dumps(message, ensure_ascii=False)
     for i in range(0, len(text), chunk_size):
         await websocket.send_text(text[i:i + chunk_size])
+        
 @router.websocket("/ws")
 async def websocket_chat(websocket: WebSocket):
     """WebSocket 实时聊天（保持流式响应 + 心跳 + finally close）"""
@@ -218,49 +283,53 @@ async def websocket_chat(websocket: WebSocket):
         except Exception:
             pass
 
-@router.post("/conversations", response_model=ConversationResponse)
+@router.post("/conversations", response_model=dict)
 async def create_conversation(request: ConversationCreateRequest):
     """创建新对话"""
     conversation_id = conversation_manager.create_conversation(request.title)
     conversation = conversation_manager.get_conversation(conversation_id)
-    return ConversationResponse(
-        id=conversation["id"],
-        title=conversation["title"],
-        created_at=conversation["created_at"],
-        updated_at=conversation["updated_at"],
-        message_count=len(conversation["messages"])
-    )
+    
+    return {
+        "id": conversation["id"],
+        "title": conversation["title"],
+        "created_at": conversation["created_at"]
+    }
 
 @router.get("/conversations", response_model=ConversationListResponse)
 async def list_conversations():
     """获取对话列表"""
     conversations = conversation_manager.get_all_conversations()
-    conversation_list = [
-        ConversationResponse(
+    
+    # 按更新时间排序（最新的在前面）
+    conversations.sort(key=lambda x: x["updated_at"], reverse=True)
+    
+    conversation_items = []
+    for conv in conversations:
+        # 生成预览
+        preview = conversation_manager.get_conversation_preview(conv["id"])
+        
+        # 格式化时间
+        updated_time = datetime.fromisoformat(conv["updated_at"].replace('Z', '+00:00'))
+        time_str = updated_time.strftime("%m-%d %H:%M")
+        
+        conversation_items.append(ConversationItem(
             id=conv["id"],
             title=conv["title"],
-            created_at=conv["created_at"],
-            updated_at=conv["updated_at"],
-            message_count=len(conv["messages"])
-        )
-        for conv in conversations
-    ]
-    conversation_list.sort(key=lambda x: x.updated_at, reverse=True)
-    return ConversationListResponse(conversations=conversation_list)
+            preview=preview,
+            time=time_str,
+            message_count= len(conv.get("messages", []))
+        ))
+    
+    return ConversationListResponse(conversations=conversation_items)
 
-@router.get("/conversations/{conversation_id}", response_model=ConversationResponse)
+@router.get("/conversations/{conversation_id}")
 async def get_conversation(conversation_id: str):
     """获取对话详情"""
     conversation = conversation_manager.get_conversation(conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="对话不存在")
-    return ConversationResponse(
-        id=conversation["id"],
-        title=conversation["title"],
-        created_at=conversation["created_at"],
-        updated_at=conversation["updated_at"],
-        message_count=len(conversation["messages"])
-    )
+    
+    return conversation
 
 @router.delete("/conversations/{conversation_id}")
 async def delete_conversation(conversation_id: str):
@@ -268,6 +337,7 @@ async def delete_conversation(conversation_id: str):
     success = conversation_manager.delete_conversation(conversation_id)
     if not success:
         raise HTTPException(status_code=404, detail="对话不存在")
+    
     return {"message": "对话已删除"}
 
 @router.post("/conversations/{conversation_id}/clear")
@@ -276,6 +346,93 @@ async def clear_conversation(conversation_id: str):
     conversation = conversation_manager.get_conversation(conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="对话不存在")
+    
     conversation["messages"] = []
-    conversation["updated_at"] = _now()
-    return {"message": "对话已清空"}
+    conversation["updated_at"] = datetime.now().isoformat()
+
+@router.post("/reports/generate", response_model=ReportResponse)
+async def generate_report(request: ReportGenerateRequest):
+    """生成报告"""
+    try:
+        # 从对话中提取信息
+        report_info = conversation_manager.extract_report_info(request.conversation_id)
+        
+        # 生成报告
+        report_content = await report_agent.generate_report(
+            report_info, 
+            request.template_type or "standard"
+        )
+        
+        # 添加报告生成消息到对话
+        report_message = {
+            "id": str(uuid.uuid4()),
+            "role": "assistant",
+            "content": f"报告已生成：\n\n{report_content}",
+            "timestamp": datetime.now().isoformat(),
+            "tool_call": {
+                "name": "report_generator",
+                "arguments": {
+                    "type": "manual",
+                    "template": request.template_type
+                },
+                "status": "completed"
+            }
+        }
+        conversation_manager.add_message(request.conversation_id, report_message)
+        
+        return ReportResponse(
+            report_id=str(uuid.uuid4()),
+            content=report_content,
+            conversation_id=request.conversation_id,
+            timestamp=datetime.now().isoformat()
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"报告生成失败: {str(e)}")
+
+@router.post("/reports/optimize", response_model=ReportResponse)
+async def optimize_report(request: ReportOptimizeRequest):
+    """优化报告"""
+    try:
+        # 优化报告
+        optimized_report = await  report_agent.optimize_report(
+            request.current_report,
+            request.optimization_request
+        )
+        
+        # 添加优化后的报告到对话
+        report_message = {
+            "id": str(uuid.uuid4()),
+            "role": "assistant",
+            "content": f"报告已优化：\n\n{optimized_report}",
+            "timestamp": datetime.now().isoformat(),
+            "tool_call": {
+                "name": "report_optimizer",
+                "arguments": {
+                    "request": request.optimization_request
+                },
+                "status": "completed"
+            }
+        }
+        conversation_manager.add_message(request.conversation_id, report_message)
+        
+        return ReportResponse(
+            report_id=str(uuid.uuid4()),
+            content=optimized_report,
+            conversation_id=request.conversation_id,
+            timestamp=datetime.now().isoformat()
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"报告优化失败: {str(e)}")
+async def generate_report_automatically(conversation_id: str) -> str:
+    """自动生成报告"""
+    try:
+        # 从对话中提取信息
+        report_info = conversation_manager.extract_report_info(conversation_id)
+        
+        # 生成报告
+        report_content = await  report_agent.generate_report(report_info, "standard")
+        return report_content
+    except Exception as e:
+        return f"自动生成报告失败: {str(e)}"

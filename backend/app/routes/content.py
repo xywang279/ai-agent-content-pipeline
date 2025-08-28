@@ -6,8 +6,6 @@ from app.agents.layout_agent import format_news_list  # 新增导入
 from app.agents.report_agent import generate_report
 
 router = APIRouter()
-
-
 # 请求模型
 class GenerateRequest(BaseModel):
     topic: str
