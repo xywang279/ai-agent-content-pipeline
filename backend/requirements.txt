@@ -17,10 +17,26 @@ google-search-results>=2.4.0
 
 fpdf>=1.7.2
 
-
 uvicorn==0.24.0
 python-dotenv==1.0.0
 pydantic==2.5.0
 websockets==12.0
 sqlalchemy==2.0.22
 sqlite3
+
+# 现有依赖...
+python-multipart==0.0.6
+pandas==2.1.4
+openpyxl==3.1.2
+xlrd==2.0.1
+python-docx==0.8.11
+python-pptx==0.6.21
+PyPDF2==3.0.1
+pdfplumber==0.10.3
+xlrd==2.0.1
+openpyxl==3.1.2
+textract==1.6.5
+jieba==0.42.1
+wordcloud==1.9.3
+matplotlib==3.8.2
+networkx==3.2.1

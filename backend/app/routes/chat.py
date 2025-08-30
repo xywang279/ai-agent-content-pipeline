@@ -1,15 +1,19 @@
-from fastapi import APIRouter, WebSocket, HTTPException, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, HTTPException, WebSocketDisconnect,File, UploadFile, Form
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import json
 import uuid
 from datetime import datetime
 import asyncio
-
+import os
 from app.utils.llm_helper import llm_helper
 from app.utils.conversation_manager_usesql import conversation_manager
 from app.utils.memory_manager import MemoryManager
 from app.agents.report_agent import  report_agent
+from app.services.file_service import file_service
+from app.services.db_service import DatabaseService
+from app.database import SessionLocal
+
 memory_manager = MemoryManager()
 memory_manager.create_or_load()
 
@@ -55,7 +59,140 @@ class ReportResponse(BaseModel):
     content: str
     conversation_id: str
     timestamp: str
+class FileUploadResponse(BaseModel):
+    file_id: str
+    file_name: str
+    file_info: Dict
+    analysis_data: Dict
+    insights: str
+    conversation_id: str
 
+class FileItem(BaseModel):
+    id: str
+    conversation_id: str
+    file_name: str
+    file_path: str
+    file_size: int
+    file_format: str
+    file_info: Optional[Dict] = None
+    insights: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+class FileListResponse(BaseModel):
+    files: List[FileItem]
+@router.post("/upload", response_model=FileUploadResponse)
+async def upload_file(
+    file: UploadFile = File(...),
+    conversation_id: str = Form(...)
+):
+    """上传并分析文件"""
+    try:
+        # 验证文件格式
+        file_extension = os.path.splitext(file.filename)[1].lower()
+        if file_extension not in file_service.supported_formats:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"不支持的文件格式。支持的格式: {', '.join(file_service.supported_formats)}"
+            )
+        
+        # 处理文件上传和分析
+        result = await file_service.process_upload_and_analyze(file, conversation_id)
+        
+        if not result["success"]:
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        # 由于当前的 file_service 没有保存到数据库并返回 ID，
+        # 我们需要手动保存文件记录到数据库
+         # 手动保存文件记录到数据库
+        try:
+            db_service = DatabaseService(SessionLocal())
+            file_record = db_service.create_file_record(
+                conversation_id=conversation_id,
+                file_name=file.filename,
+                file_path=result["file_path"],
+                file_size=result["file_info"]["file_size"],
+                file_format=result["file_info"]["file_format"],
+                file_info=result["file_info"],
+                analysis_data=result["analysis_data"],
+                insights=result["insights"]
+            )
+        except Exception as db_error:
+            print(f"数据库保存错误: {str(db_error)}")
+            # 如果数据库保存失败，使用临时ID
+            file_record = {
+                "id": str(uuid.uuid4()),
+                "conversation_id": conversation_id,
+                "file_name": file.filename,
+                "file_path": result["file_path"],
+                "file_size": result["file_info"]["file_size"],
+                "file_format": result["file_info"]["file_format"]
+            }
+        
+        # 添加文件分析消息到对话
+        analysis_message = {
+            "id": str(uuid.uuid4()),
+            "role": "assistant",
+            "content": f"📄 文件分析完成：\n\n{result['insights']}",
+            "timestamp": datetime.now().isoformat(),
+            "tool_call": {
+                "name": "file_analyzer",
+                "arguments": {
+                    "file_name": file.filename,
+                    "file_path": result["file_path"]
+                },
+                "status": "completed"
+            }
+        }
+        conversation_manager.add_message(conversation_id, analysis_message)
+        
+        return FileUploadResponse(
+            file_id=file_record["id"],
+            file_name=file.filename,
+            file_info=result["file_info"],
+            analysis_data=result["analysis_data"],
+            insights=result["insights"],
+            conversation_id=conversation_id
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")
+@router.get("/files/{conversation_id}", response_model=FileListResponse)
+async def list_files(conversation_id: str):
+    """获取对话中的文件列表"""
+    try:
+        db_service = DatabaseService(SessionLocal())
+        files = db_service.get_files_by_conversation(conversation_id)
+         # 转换为 FileItem 对象
+        file_items = []
+        for file in files:
+            file_items.append(FileItem(
+                id=file["id"],
+                conversation_id=file["conversation_id"],
+                file_name=file["file_name"],
+                file_path=file["file_path"],
+                file_size=file["file_size"],
+                file_format=file["file_format"],
+                file_info=file["file_info"],
+                insights=file["insights"],
+                created_at=file["created_at"],
+                updated_at=file["updated_at"]
+            ))
+        
+        return FileListResponse(files=file_items)
+       
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取文件列表失败: {str(e)}")
+
+@router.get("/files/{file_id}/preview")
+async def preview_file(file_id: str):
+    """预览文件"""
+    try:
+        preview_content = file_service.get_file_preview(file_id)
+        return {"preview": preview_content, "file_id": file_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"预览文件失败: {str(e)}")
+       
 def _now():
     return datetime.utcnow().isoformat()
 
@@ -186,6 +323,7 @@ async def websocket_chat(websocket: WebSocket):
                         "timestamp": _now(),
                     }
                     conversation_manager.add_message(conversation_id, user_message)
+                    
                     memory_manager.add_texts([user_message["content"]])
 
                     # 2. 检索长期记忆
