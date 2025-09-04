@@ -2,6 +2,15 @@ import os
 import uuid
 from typing import Dict, List
 from fastapi import UploadFile
+from langchain_community.vectorstores import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.prompts import PromptTemplate
+from langchain.chains import RetrievalQA, LLMChain
+from langchain_openai.chat_models.base import BaseChatOpenAI
+from langchain.docstore.document import Document
+from queue import Queue
+import threading
 import pdfplumber
 import pandas as pd
 from docx import Document
@@ -13,7 +22,7 @@ import re
 from datetime import datetime
 from app.services.db_service import DatabaseService
 from app.database import SessionLocal
-
+from app.utils.llm_helper import llm_helper 
 
 class FileService:
     def __init__(self):
@@ -22,6 +31,9 @@ class FileService:
         # 确保上传目录存在
         os.makedirs(self.upload_dir, exist_ok=True)
         self.db_service = None
+        # 🔥 持久化目录
+        self.vector_dir = "./vectorstores"
+        self.embeddings = HuggingFaceEmbeddings(model_name="shibing624/text2vec-base-chinese")
         
     def _get_db_service(self):
         """获取数据库服务实例"""
@@ -29,7 +41,132 @@ class FileService:
             db = SessionLocal()
             self.db_service = DatabaseService(db)
         return self.db_service
+    # =========================
+    # 🔥 1. 构建向量库
+    # =========================
+    def build_vector_store(self, file_id: str, full_text: str):
+        """为某个文件构建向量库"""
+        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        docs = [Document(page_content=chunk, metadata={"file_id": file_id})
+                for chunk in splitter.split_text(full_text)]
+        
+        vector_db = Chroma.from_documents(
+            documents=docs,
+            embedding=self.embeddings,
+            persist_directory=os.path.join(self.vector_dir, file_id)
+        )
+        vector_db.persist()
+        return True
     
+    def _get_vectorstore(self, file_id: str):
+        """加载文件的向量库"""
+        return Chroma(
+            embedding_function=self.embeddings,
+            persist_directory=os.path.join(self.vector_dir, file_id)
+        )
+    # =========================
+    # 🔥 2. 非流式文件问答
+    # =========================
+    def ask_file(self, file_id: str, question: str) -> dict:
+        vector_db = self._get_vectorstore(file_id)
+        retriever = vector_db.as_retriever(search_type="mmr", search_kwargs={"k": 5})
+
+        
+
+        PROMPT_TEMPLATE = """
+        你是一个专业的知识助手，请严格根据提供的上下文信息回答问题。
+        如果上下文不包含答案，请回答 "根据现有知识无法回答该问题"。
+
+        上下文：
+        {context}
+
+        问题：{question}
+        """
+
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=llm_helper.llm,
+            chain_type="stuff",
+            retriever=retriever,
+            chain_type_kwargs={"prompt": PromptTemplate(
+                template=PROMPT_TEMPLATE,
+                input_variables=["context", "question"]
+            )},
+            return_source_documents=True
+        )
+
+        result = qa_chain({"query": question})
+        return {
+            "answer": result["result"],
+            "sources": [
+                {
+                    "page_content": doc.page_content[:200],
+                    "metadata": doc.metadata
+                } for doc in result.get("source_documents", [])
+            ]
+        }
+    # =========================
+    # 🔥 3. 流式问答（带对话历史）
+    # =========================
+    def ask_file_stream(self, file_id: str, messages: List[dict], summary_text: str):
+        vector_db = self._get_vectorstore(file_id)
+        retriever = vector_db.as_retriever(search_type="mmr", search_kwargs={"k": 5})
+        
+        query = messages[-1]["content"]
+        docs = retriever.get_relevant_documents(query)
+        context = "\n".join([doc.page_content for doc in docs])
+        history = "\n".join([f"{m['role']}：{m['content']}" for m in messages[:-1]])
+
+        PROMPT_TEMPLATE = """
+        你是一个专业的知识问答助手，请根据以下知识上下文和对话历史回答用户问题。
+        如果无法根据内容回答，请回复 "根据现有知识无法回答该问题"。
+
+        【知识上下文】
+        {context}
+
+        【历史摘要】
+        {summary}
+
+        【历史对话】
+        {history}
+
+        【当前问题】
+        {question}
+        """
+        chain = LLMChain(
+            llm=llm_helper.llm,
+            prompt=PromptTemplate(
+                input_variables=["context", "summary", "history", "question"],
+                template=PROMPT_TEMPLATE
+            )
+        )
+
+        q = Queue()
+
+        def _callback(token):
+            q.put(token)
+
+        def run_chain():
+            try:
+                chain.run({
+                    "context": context,
+                    "summary": summary_text,
+                    "history": history,
+                    "question": query
+                })
+            finally:
+                q.put(None)
+
+        threading.Thread(target=run_chain).start()
+
+        def token_stream():
+            while True:
+                token = q.get()
+                if token is None:
+                    break
+                yield f"data: {token}\n\n"
+
+        return token_stream()
+
     async def save_upload_file(self, file: UploadFile, conversation_id: str) -> str:
         """保存上传的文件"""
         try:
@@ -274,8 +411,29 @@ class FileService:
             }
         except Exception as e:
             return {"error": f"使用unstructured提取内容失败: {str(e)}"}
-    
-    def analyze_content(self, content_data: Dict, file_info: Dict) -> Dict:
+    async def _generate_llm_summary(self, text: str,max_length: int = 300) -> str:
+        """
+        使用 DeepSeek 生成自然摘要（通过 llm_helper）
+        """
+        if not text.strip():
+            return "文本为空，无法生成摘要"
+
+        # 截断，避免输入过长
+        snippet = text[:2000]
+
+        messages = [
+            {"role": "system", "content": "你是一名专业的文档分析助手，请帮我生成简明扼要的摘要。"},
+            {"role": "user", "content": f"请为以下文本生成一个不超过{max_length}字的摘要：\n\n{snippet}"}
+        ]
+
+        try:
+            response = await llm_helper.chat_completion(messages)
+            summary = response["choices"][0]["message"]["content"].strip()
+            return summary
+        except Exception as e:
+            return f"LLM摘要生成失败: {str(e)}"
+
+    async def analyze_content(self, content_data: Dict, file_info: Dict) -> Dict:
         try:
             full_text = content_data.get("full_text", "")
             word_count, character_count = len(full_text.split()), len(full_text)
@@ -286,6 +444,13 @@ class FileService:
                 "summary_300": self._generate_summary(full_text, 300),
                 "summary_1000": self._generate_summary(full_text, 1000),
             }
+            # 可选：调用大模型做更自然的摘要（如果接了 LLM）
+            try:
+                llm_summary = await self._generate_llm_summary(full_text)
+                summaries["llm_summary"] = llm_summary
+            except Exception:
+                summaries["llm_summary"] = "LLM摘要不可用"
+
             return {
                 "statistics": {
                     "word_count": word_count,
@@ -340,8 +505,14 @@ class FileService:
             file_path = await self.save_upload_file(file, conversation_id)
             file_info = self.get_file_info(file_path, file.filename)
             content_data = self.extract_content(file_path)
-            analysis_data = self.analyze_content(content_data, file_info)
+            analysis_data = await self.analyze_content(content_data, file_info)
             insights = self._generate_insights(file_info, analysis_data, content_data)
+            
+            # 🔥 自动构建向量库
+            if "full_text" in content_data and content_data["full_text"].strip():
+                file_id = os.path.splitext(os.path.basename(file_path))[0]
+                self.build_vector_store(file_id, content_data["full_text"])
+            
             return {
                 "file_path": file_path,
                 "file_info": file_info,
@@ -353,7 +524,7 @@ class FileService:
         except Exception as e:
             return {"error": str(e), "success": False}
     
-    def _generate_insights(self, file_info: Dict, analysis_data: Dict, content_dat: Dict) -> str:
+    def _generate_insights(self, file_info: Dict, analysis_data: Dict, content_data: Dict) -> str:
         try:
             insights = f"""📄 文件分析洞察：
 
@@ -381,10 +552,10 @@ class FileService:
             summaries = analysis_data.get('summaries', {})
             if summaries.get('summary_100'):
                 insights += f"\n📋 100字摘要：\n{summaries['summary_100']}\n"
+            if summaries.get('llm_summary'):
+                insights += f"\n🤖 LLM摘要：\n{summaries['llm_summary']}\n"
             return insights
         except Exception:
             return "生成洞察失败"
-
-
 # 全局文件服务实例
 file_service = FileService()

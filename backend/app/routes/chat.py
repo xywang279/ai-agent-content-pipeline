@@ -11,8 +11,14 @@ from app.utils.conversation_manager_usesql import conversation_manager
 from app.utils.memory_manager import MemoryManager
 from app.agents.report_agent import  report_agent
 from app.services.file_service import file_service
+from app.services.index_service import index_service
+from app.services import chunking_service
 from app.services.db_service import DatabaseService
 from app.database import SessionLocal
+from sqlalchemy import text as sql_text
+from app.services.index_service import index_service
+from app.services import extraction_service, chunking_service
+from app.config import CONV_TOPK, KB_TOPK
 
 memory_manager = MemoryManager()
 memory_manager.create_or_load()
@@ -117,6 +123,30 @@ async def upload_file(
                 analysis_data=result["analysis_data"],
                 insights=result["insights"]
             )
+            # 构建向量索引（以文件ID为命名空间）
+            try:
+                full_text = (result.get("content_data") or {}).get("full_text") or ""
+                if not full_text:
+                    # 兼容：从结构化内容拼接
+                    cd = result.get("content_data") or {}
+                    parts = []
+                    for p in cd.get("pages", []) or []:
+                        parts.append(p.get("content", ""))
+                    for p in cd.get("paragraphs", []) or []:
+                        parts.append(p.get("content", ""))
+                    for s in cd.get("slides", []) or []:
+                        parts.append(s.get("content", ""))
+                    full_text = "\n".join(parts)
+                if full_text:
+                    file_service.build_vector_store(file_record["id"], full_text)
+                    # 同步入库到会话空间 conv_<conversation_id>
+                    try:
+                        docs = chunking_service.chunk_from_text(full_text, kb=f"conv_{conversation_id}", file_name=file.filename)
+                        index_service.upsert_docs(f"conv_{conversation_id}", docs)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         except Exception as db_error:
             print(f"数据库保存错误: {str(db_error)}")
             # 如果数据库保存失败，使用临时ID
@@ -314,6 +344,7 @@ async def websocket_chat(websocket: WebSocket):
                         message_data.get("conversation_id")
                         or conversation_manager.create_conversation()
                     )
+                    kb_name = message_data.get("kb")
 
                     #1  保存用户消息到短期和长期记忆
                     user_message = {
@@ -340,6 +371,32 @@ async def websocket_chat(websocket: WebSocket):
                         formatted_messages = [{"role": "system", "content": system_prompt}] + short_term_context
                     else:
                         formatted_messages = short_term_context
+
+                    # 组合检索：会话空间 + 可选 KB 空间
+                    try:
+                        conv_docs = []
+                        try:
+                            conv_retriever = index_service.retriever(f"conv_{conversation_id}", k=CONV_TOPK)
+                            conv_docs = conv_retriever.get_relevant_documents(message)
+                        except Exception:
+                            conv_docs = []
+                        kb_docs = []
+                        if kb_name:
+                            try:
+                                kb_retriever = index_service.retriever(kb_name, k=KB_TOPK)
+                                kb_docs = kb_retriever.get_relevant_documents(message)
+                            except Exception:
+                                kb_docs = []
+                        kn_segments = []
+                        for d in conv_docs + kb_docs:
+                            if d and getattr(d, 'page_content', None):
+                                kn_segments.append(d.page_content)
+                        if kn_segments:
+                            knowledge_context = "\n".join(kn_segments[:5])
+                            kc_prompt = f"【检索知识】\n{knowledge_context}"
+                            formatted_messages = [{"role": "system", "content": kc_prompt}] + formatted_messages
+                    except Exception:
+                        pass
                     # messages = conversation_manager.get_messages(conversation_id)
                     # formatted_messages = [
                     #     {"role": msg["role"], "content": msg["content"]}
@@ -487,6 +544,45 @@ async def clear_conversation(conversation_id: str):
     
     conversation["messages"] = []
     conversation["updated_at"] = datetime.now().isoformat()
+    return {"success": True}
+
+@router.get("/conversations/{conversation_id}/retrieval/status")
+async def conv_retrieval_status(conversation_id: str):
+    """获取会话检索空间状态（chunk 数）"""
+    try:
+        chunks = index_service.total_chunks(f"conv_{conversation_id}")
+        return {"conversation_id": conversation_id, "doc_chunks": chunks}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取会话检索状态失败: {str(e)}")
+
+@router.post("/conversations/{conversation_id}/retrieval/rebuild")
+async def conv_retrieval_rebuild(conversation_id: str):
+    """重建会话检索空间（根据 file_records 重新抽取并入库）"""
+    try:
+        # 清空向量库目录
+        index_service.rebuild(f"conv_{conversation_id}")
+        # 读取 file_records
+        db = SessionLocal()
+        rows = db.execute(sql_text(
+            "SELECT id, file_name, file_path FROM file_records WHERE conversation_id = :cid AND is_active = 1"
+        ), {"cid": conversation_id}).fetchall()
+        total_files = 0
+        total_chunks = 0
+        for r in rows:
+            file_name = r[1]
+            file_path = r[2]
+            try:
+                extracted = extraction_service.extract(file_path)
+                text = chunking_service.text_from_extracted(extracted)
+                docs = chunking_service.chunk_from_text(text, f"conv_{conversation_id}", file_name)
+                index_service.upsert_docs(f"conv_{conversation_id}", docs)
+                total_files += 1
+                total_chunks += len(docs)
+            except Exception:
+                continue
+        return {"success": True, "conversation_id": conversation_id, "files": total_files, "chunks": total_chunks}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"重建失败: {str(e)}")
 
 @router.post("/reports/generate", response_model=ReportResponse)
 async def generate_report(request: ReportGenerateRequest):
