@@ -56,6 +56,15 @@
           background: rgba(79, 70, 229, 0.1);
           color: var(--primary-color);
         }
+
+        &.disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+          &:hover {
+            background: transparent;
+            color: var(--text-secondary);
+          }
+        }
       }
     }
   }
@@ -64,6 +73,31 @@
     display: flex;
     align-items: center;
     gap: var(--spacing-lg);
+
+    .search {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+      padding: 6px 10px;
+      border: 1px solid var(--border-color);
+      border-radius: var(--border-radius-md);
+      background: var(--card-background);
+      box-shadow: var(--shadow-sm);
+
+      .search-icon {
+        font-size: 14px;
+        color: var(--text-secondary);
+      }
+
+      .search-input {
+        border: none;
+        outline: none;
+        background: transparent;
+        font-size: var(--font-size-sm);
+        color: var(--text-primary);
+        width: 200px;
+      }
+    }
 
     .notification-badge {
       position: relative;

@@ -1,27 +1,50 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import api from '../../api/chat';
 import './Sidebar.scss';
 
-const Sidebar = () => {
-  const recentChats = [
-    {
-      id: '1',
-      title: '项目计划讨论',
-      preview: '帮我制定一个项目时间表...',
-      time: '2小时前'
-    },
-    {
-      id: '2',
-      title: '数据分析报告',
-      preview: '分析上个月的销售数据',
-      time: '昨天'
-    },
-    {
-      id: '3',
-      title: '旅行规划',
-      preview: '推荐一些旅游景点',
-      time: '3天前'
+const Sidebar = ({ onConversationSelect, currentConversationId }) => {
+  const [recentChats, setRecentChats] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  // 获取对话列表
+  const fetchConversations = async () => {
+    try {
+      setLoading(true);
+      const response = await api.getAllConversations();
+      setRecentChats(response.conversations || []);
+    } catch (error) {
+      console.error('获取对话列表失败:', error);
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
+
+  // 创建新对话
+  const createNewConversation = async () => {
+    try {
+      const response = await api.createNewConversation();
+      await fetchConversations();
+      onConversationSelect(response.id);
+    } catch (error) {
+      console.error('创建新对话失败:', error);
+    }
+  };
+
+  // 加载对话列表
+  useEffect(() => {
+    fetchConversations();
+  }, []);
+
+  // 当对话发生变化时刷新列表
+  useEffect(() => {
+    if (currentConversationId) {
+      // 延迟刷新以确保对话已保存
+      const timer = setTimeout(() => {
+        fetchConversations();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [currentConversationId]);
 
   return (
     <aside className="sidebar">
@@ -31,7 +54,7 @@ const Sidebar = () => {
           <li className="menu-item active">
             <span className="menu-icon">💬</span>
             <span>新对话</span>
-            <button className="new-chat-btn">
+            <button className="new-chat-btn" onClick={createNewConversation}>
               +
             </button>
           </li>
@@ -54,17 +77,30 @@ const Sidebar = () => {
         <div className="section-header">
           <h3 className="section-title">最近对话</h3>
         </div>
-        <ul className="chat-history">
-          {recentChats.map(chat => (
-            <li key={chat.id} className="chat-item">
-              <div className="chat-content">
-                <div className="chat-title">{chat.title}</div>
-                <div className="chat-preview">{chat.preview}</div>
-              </div>
-              <div className="chat-time">{chat.time}</div>
-            </li>
-          ))}
-        </ul>
+        {loading ? (
+          <div className="loading">加载中...</div>
+        ) : (
+          <ul className="chat-history">
+            {recentChats.map(chat => (
+              <li 
+                key={chat.id} 
+                className={`chat-item ${currentConversationId === chat.id ? 'active' : ''}`}
+                onClick={() => onConversationSelect(chat.id)}
+              >
+                <div className="chat-content">
+                  <div className="chat-title">{chat.title}</div>
+                  <div className="chat-preview">{chat.preview}</div>
+                </div>
+                <div className="chat-time">{chat.time}</div>
+              </li>
+            ))}
+            {recentChats.length === 0 && (
+              <li className="empty-state">
+                <div>暂无对话记录</div>
+              </li>
+            )}
+          </ul>
+        )}
       </div>
 
       <div className="sidebar-footer">

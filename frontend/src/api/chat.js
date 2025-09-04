@@ -1,16 +1,8 @@
 const API_BASE_URL = 'http://localhost:8000'; // FastAPI 默认端口
-
 class ChatAPI {
   constructor() {
     this.baseUrl = API_BASE_URL;
-    // 添加认证 token（如果需要）
     this.token = localStorage.getItem('access_token');
-  }
-
-  // 设置认证 token
-  setToken(token) {
-    this.token = token;
-    localStorage.setItem('access_token', token);
   }
 
   // 获取请求头
@@ -27,7 +19,7 @@ class ChatAPI {
   }
 
   // 发送消息到 AI
-  async sendMessage(message, conversationId = null, sessionId = null) {
+  async sendMessage(message, conversationId = null) {
     try {
       const response = await fetch(`${this.baseUrl}/api/chat`, {
         method: 'POST',
@@ -35,7 +27,6 @@ class ChatAPI {
         body: JSON.stringify({
           message: message,
           conversation_id: conversationId,
-          session_id: sessionId,
         }),
       });
 
@@ -52,55 +43,10 @@ class ChatAPI {
     }
   }
 
-  // 流式发送消息（如果 FastAPI 支持 SSE）
-  async sendMessageStream(message, conversationId = null, onMessage, onError) {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/chat/stream`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({
-          message: message,
-          conversation_id: conversationId,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-      }
-
-      // 处理流式响应
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-        
-        lines.forEach(line => {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              onMessage(data);
-            } catch (e) {
-              console.error('解析流数据失败:', e);
-            }
-          }
-        });
-      }
-    } catch (error) {
-      console.error('流式发送消息失败:', error);
-      onError && onError(error);
-    }
-  }
-
   // 获取对话历史
   async getConversationHistory(conversationId) {
     try {
-      const response = await fetch(`${this.baseUrl}/api/conversations/${conversationId}`, {
+      const response = await fetch(`${this.baseUrl}/api/chat/conversations/${conversationId}`, {
         method: 'GET',
         headers: this.getHeaders(),
       });
@@ -118,31 +64,10 @@ class ChatAPI {
     }
   }
 
-  // 获取所有对话列表
-  async getAllConversations() {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/conversations`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error('获取对话列表失败:', error);
-      throw error;
-    }
-  }
-
   // 创建新对话
   async createNewConversation(title = null) {
     try {
-      const response = await fetch(`${this.baseUrl}/api/conversations`, {
+      const response = await fetch(`${this.baseUrl}/api/chat/conversations`, {
         method: 'POST',
         headers: this.getHeaders(),
         body: JSON.stringify({
@@ -163,13 +88,12 @@ class ChatAPI {
     }
   }
 
-  // 更新对话
-  async updateConversation(conversationId, updates) {
+  // 获取所有对话列表
+  async getAllConversations() {
     try {
-      const response = await fetch(`${this.baseUrl}/api/conversations/${conversationId}`, {
-        method: 'PUT',
+      const response = await fetch(`${this.baseUrl}/api/chat/conversations`, {
+        method: 'GET',
         headers: this.getHeaders(),
-        body: JSON.stringify(updates),
       });
 
       if (!response.ok) {
@@ -180,7 +104,7 @@ class ChatAPI {
       const data = await response.json();
       return data;
     } catch (error) {
-      console.error('更新对话失败:', error);
+      console.error('获取对话列表失败:', error);
       throw error;
     }
   }
@@ -188,7 +112,7 @@ class ChatAPI {
   // 删除对话
   async deleteConversation(conversationId) {
     try {
-      const response = await fetch(`${this.baseUrl}/api/conversations/${conversationId}`, {
+      const response = await fetch(`${this.baseUrl}/api/chat/conversations/${conversationId}`, {
         method: 'DELETE',
         headers: this.getHeaders(),
       });
@@ -205,70 +129,11 @@ class ChatAPI {
     }
   }
 
-  // 用户登录
-  async login(username, password) {
+  // 清空对话
+  async clearConversation(conversationId) {
     try {
-      const response = await fetch(`${this.baseUrl}/api/auth/login`, {
+      const response = await fetch(`${this.baseUrl}/api/chat/conversations/${conversationId}/clear`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          username: username,
-          password: password,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (data.access_token) {
-        this.setToken(data.access_token);
-      }
-      
-      return data;
-    } catch (error) {
-      console.error('登录失败:', error);
-      throw error;
-    }
-  }
-
-  // 用户注册
-  async register(username, email, password) {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/auth/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          username: username,
-          email: email,
-          password: password,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error('注册失败:', error);
-      throw error;
-    }
-  }
-
-  // 获取用户信息
-  async getUserInfo() {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/users/me`, {
-        method: 'GET',
         headers: this.getHeaders(),
       });
 
@@ -277,12 +142,160 @@ class ChatAPI {
         throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
       }
 
+      return { success: true };
+    } catch (error) {
+      console.error('清空对话失败:', error);
+      throw error;
+    }
+  }
+  // 生成报告
+  async generateReport(request) {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/chat/reports/generate`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
       return data;
     } catch (error) {
-      console.error('获取用户信息失败:', error);
+      console.error('生成报告失败:', error);
       throw error;
     }
+  }
+
+  // 优化报告
+  async optimizeReport(request) {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/chat/reports/optimize`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('优化报告失败:', error);
+      throw error;
+    }
+  }
+
+  async exportReport (format, reportContent) {
+    if (!reportContent) return;
+
+    if (format === "pdf") {
+      // === 生成 PDF ===
+      const doc = new jsPDF();
+      // 设置字体为中文
+      doc.setFont("SimHei", "normal"); 
+      doc.setFontSize(12);
+      // 设置内容（自动换行）
+      const lines = doc.splitTextToSize(reportContent, 180);
+      doc.text(lines, 10, 10);
+      // 下载
+      doc.save("报告.pdf");
+    } else if (format === "docx") {
+      // === 生成 Word ===
+      const paragraphs = reportContent.split("\n").map(
+        (line) =>
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: line,
+                font: "SimSun",
+                size: 24, // 12pt
+              }),
+            ],
+          })
+      );
+
+      const doc = new Document({
+        sections: [{ children: paragraphs }],
+      });
+
+      Packer.toBlob(doc).then((blob) => {
+        saveAs(blob, "报告.docx");
+      });
+    } else {
+      console.warn("Unsupported format:", format);
+      }
+  }
+  // 在现有方法基础上添加以下方法
+
+// 上传文件
+  async uploadFile(file, conversationId) {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('conversation_id', conversationId);
+      
+      const response = await fetch(`${this.baseUrl}/api/chat/upload`, {
+        method: 'POST',
+        body: formData,
+        // 注意：不要设置 Content-Type，让浏览器自动设置
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+      console.log('文件上传成功:', data);
+    } catch (error) {
+      console.error('文件上传失败:', error);
+      throw error;
+    }
+  }
+
+  // 获取文件列表
+  async getFileList(conversationId) {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/chat/files/${conversationId}`);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('获取文件列表失败:', error);
+      throw error;
+    }
+  }
+
+  // 预览文件
+  async previewFile(fileId) {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/chat/files/${fileId}/preview`);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('预览文件失败:', error);
+      throw error;
+    }
+
   }
 }
 

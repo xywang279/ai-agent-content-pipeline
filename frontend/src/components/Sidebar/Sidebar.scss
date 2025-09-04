@@ -9,7 +9,6 @@
   overflow: hidden;
   flex-shrink: 0;
 
-  // 其他样式保持不变...
   .menu-section {
     padding: var(--spacing-lg);
     border-bottom: 1px solid var(--border-color);
@@ -91,30 +90,26 @@
   .recent-chats {
     flex: 1;
     padding: var(--spacing-lg);
-    overflow-y: auto;
-    
-    // 添加滚动条样式
-    &::-webkit-scrollbar {
-      width: 6px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+
+    .section-header {
+      margin-bottom: var(--spacing-md);
     }
-    
-    &::-webkit-scrollbar-track {
-      background: var(--background-color);
-    }
-    
-    &::-webkit-scrollbar-thumb {
-      background: var(--border-color);
-      border-radius: 3px;
-    }
-    
-    &::-webkit-scrollbar-thumb:hover {
-      background: var(--text-secondary);
+
+    .loading {
+      text-align: center;
+      padding: var(--spacing-lg);
+      color: var(--text-secondary);
     }
 
     .chat-history {
       list-style: none;
       margin: 0;
       padding: 0;
+      overflow-y: auto;
+      flex: 1;
 
       .chat-item {
         padding: var(--spacing-md);
@@ -125,6 +120,11 @@
 
         &:hover {
           background: rgba(79, 70, 229, 0.05);
+        }
+
+        &.active {
+          background: rgba(79, 70, 229, 0.1);
+          border-left: 3px solid var(--primary-color);
         }
 
         &:last-child {
@@ -157,7 +157,15 @@
           font-size: var(--font-size-xs);
           color: var(--text-secondary);
           margin-top: var(--spacing-xs);
+          text-align: right;
         }
+      }
+
+      .empty-state {
+        text-align: center;
+        padding: var(--spacing-lg);
+        color: var(--text-secondary);
+        font-size: var(--font-size-sm);
       }
     }
   }

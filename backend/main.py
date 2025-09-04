@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.routes.chat import router as chat_router
+from app.routes.rag import router as rag_router
 from app.utils.llm_helper import llm_helper
 from app.database import init_db
 
@@ -54,6 +55,7 @@ app.add_middleware(
 
 # 包含 API 路由
 app.include_router(chat_router, prefix="/api")
+app.include_router(rag_router, prefix="/api")
 
 @app.get("/")
 async def root():

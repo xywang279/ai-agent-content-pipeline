@@ -260,3 +260,104 @@
   color: var(--error-color);
   font-size: var(--font-size-sm);
 }
+// 在现有样式基础上添加以下内容
+
+.report-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.report-modal-content {
+  background: var(--card-background);
+  border-radius: var(--border-radius-lg);
+  width: 90%;
+  height: 90%;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg);
+}
+
+.report-modal-header {
+  padding: var(--spacing-lg);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.report-modal-header h3 {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+}
+
+.report-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.report-actions button {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--primary-color);
+  color: white;
+  border: none;
+  border-radius: var(--border-radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  transition: background 0.2s ease;
+
+  &:hover {
+    background: #4338ca;
+  }
+}
+
+.report-content {
+  flex: 1;
+  padding: var(--spacing-lg);
+  overflow-y: auto;
+  
+  pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: var(--font-family);
+    line-height: 1.6;
+    margin: 0;
+  }
+}
+
+// 在 .chat-header 中添加报告按钮样式
+.chat-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+
+  .action-btn {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-md);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+
+    &:hover {
+      background: rgba(79, 70, 229, 0.05);
+      border-color: var(--primary-color);
+      color: var(--primary-color);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+}
